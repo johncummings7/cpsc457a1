@@ -1,12 +1,14 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 
 
 /*
-Side note: I am using longs for this portion of the assignment so can just utilize the strtol() function
+Side note: I am using longs for parsing and arithmetic at the beginning so can utilize the strtol() function
 and avoid any undefined behaviour, and save headache with bound checking and parsing.
 https://stackoverflow.com/questions/7021725/how-to-convert-a-string-to-integer-in-c
 */
@@ -63,14 +65,68 @@ int main(int argc, char *argv[]) {
     // From https://stackoverflow.com/questions/2745074/fast-ceiling-of-an-integer-division-in-c-c
     long numbers_per_child = (numbers_in_range + (N-1)) / N;
 
-    // Testing: checking children processes ranges are not over lapping
+    // Using suggested memory layout from assignment
+    size_t block_size  = (size_t)numbers_per_child;
+    size_t total = (size_t)N * block_size;
+    const size_t SIZE = total * sizeof(int);
+
+    // Creating shared memory
+    int shmid = shmget(IPC_PRIVATE, SIZE, IPC_CREAT | 0666);
+    if (shmid < 0) { // Terminate if something goes wrong with shmget
+        perror("shmget");
+        return 1;
+    }
+
+    // Attaching shared memory
+    int *shm_ptr = (int *) shmat(shmid, NULL, 0);
+    // Terminate if something goes wrong with shmat and use shmctl to stop memory leak
+    if (shm_ptr == (void *)-1) { 
+        perror("shmat");
+        shmctl(shmid, IPC_RMID, NULL);
+        return 1;
+    }
+
+    // Initializing shared memory with sentinels so parent knows where to stop reading in each segment
+    for (size_t s = 0; s < total; s++) {
+        shm_ptr[s] = -1;
+    }
+
+    // Forking N children
     for (long i = 0; i < N; i++) {
-        long start = LOWER + i * numbers_per_child;
-        long end = start + numbers_per_child - 1;
-        if (end > UPPER) {
-            end = UPPER;
+        pid_t fr = fork();
+
+        if (fr < 0) {
+            fprintf(stderr, "Fork FAILED\n");
+            shmdt(shm_ptr);
+            shmctl(shmid, IPC_RMID, NULL);
+            return 1;
         }
-        printf("Child %ld will check for primes in range [%ld, %ld]\n", i, start, end);
+        if (fr == 0) { // Child process
+            long start = LOWER + i * numbers_per_child;
+            long end = start + numbers_per_child - 1;
+            if (end > UPPER) {
+                end = UPPER;
+            }
+
+            printf("Child PID %d checking range [%ld, %ld]\n", getpid(), start, end);
+            _exit(0);
+        }
+    }
+
+    for (long i = 0; i < N; i++) {
+        if (wait(NULL) < 0) {
+            perror("wait");
+        }
+    }
+
+    printf("Parent: All children finished. Primes found: (none yet because we arent looking)\n");
+
+    if (shmdt(shm_ptr) == -1) {
+        perror("shmdt");
+    }
+
+    if (shmctl(shmid, IPC_RMID, NULL) == -1) {
+        perror("shmctl IPC_RMID");
     }
 
     return 0;
