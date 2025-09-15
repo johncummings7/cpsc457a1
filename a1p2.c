@@ -5,6 +5,7 @@
 #include <sys/shm.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <math.h>
 
 
 /*
@@ -12,6 +13,15 @@ Side note: I am using longs for parsing and arithmetic at the beginning so can u
 and avoid any undefined behaviour, and save headache with bound checking and parsing.
 https://stackoverflow.com/questions/7021725/how-to-convert-a-string-to-integer-in-c
 */
+
+int is_prime(int num) {
+    if (num < 2) return 0;
+    for (int i = 2; i <= sqrt(num); i++) {
+        if (num % i == 0) return 0;
+    }
+    return 1;
+}
+
 
 /*
 Helper to parse inputs to longs.
@@ -63,10 +73,10 @@ int main(int argc, char *argv[]) {
 
     // Calculates amt of numbers each child will process, rounded up, using ceiling division
     // From https://stackoverflow.com/questions/2745074/fast-ceiling-of-an-integer-division-in-c-c
-    long numbers_per_child = (numbers_in_range + (N-1)) / N;
+    long MAX_PRIMES_PER_CHILD = (numbers_in_range + (N-1)) / N;
 
     // Using suggested memory layout from assignment
-    size_t block_size  = (size_t)numbers_per_child;
+    size_t block_size  = (size_t)MAX_PRIMES_PER_CHILD;
     size_t total = (size_t)N * block_size;
     const size_t SIZE = total * sizeof(int);
 
@@ -102,29 +112,72 @@ int main(int argc, char *argv[]) {
             return 1;
         }
         if (fr == 0) { // Child process
-            long start = LOWER + i * numbers_per_child;
-            long end = start + numbers_per_child - 1;
+            long start = LOWER + i * MAX_PRIMES_PER_CHILD;
+            long end = start + MAX_PRIMES_PER_CHILD - 1;
             if (end > UPPER) {
                 end = UPPER;
             }
 
             printf("Child PID %d checking range [%ld, %ld]\n", getpid(), start, end);
+
+            // Write primes into child's block
+            size_t block_start = (size_t)i * block_size; // Start index of childs block
+            size_t block_end = block_start + block_size; // End of block
+            size_t next_free_slot = block_start; // Next free slot
+
+            // Iterate through childs range
+            for (long n = start; n <= end; n++) {
+                // Check primality
+                if (is_prime((int)n)) {
+                    /*
+                    If n is prime, make sure there is room to store it (there should always be room b/c
+                    I used the suggested memory layout, but its always good to check)
+                    */ 
+                    if (next_free_slot < block_end) {
+                        // Store n, advance to next slot in memory
+                        shm_ptr[next_free_slot++] = (int)n;
+                    }
+                }
+            }
             _exit(0);
         }
     }
 
+    // Parent: waiting for all N children
     for (long i = 0; i < N; i++) {
         if (wait(NULL) < 0) {
             perror("wait");
         }
     }
 
-    printf("Parent: All children finished. Primes found: (none yet because we arent looking)\n");
+    printf("\n");
+    printf("Parent: All children finished. Primes found:\n");
 
+    // Read results from memory
+    for (long child_index = 0; child_index < N; child_index++) {
+        // Each child has its own contiguous block defined by [base, base+block_size)
+        size_t base = (size_t)child_index * block_size;
+
+        // Iterate through each slot in the childs block
+        for (size_t s = 0; s < block_size; s++) {
+            // Read its value
+            int value = shm_ptr[base + s];
+            // If parent reads a -1 it means there are no more prime numbers in this childs block
+            if (value == -1){
+                break;
+            }
+            printf("%d ", value);
+        }
+    }
+
+    printf("\n");
+
+    // Memory cleanup, both steps wrapped in if-statements to catch errors 
+    // Detach from segment in current process
     if (shmdt(shm_ptr) == -1) {
         perror("shmdt");
     }
-
+    // Mark the segment to be removed
     if (shmctl(shmid, IPC_RMID, NULL) == -1) {
         perror("shmctl IPC_RMID");
     }
