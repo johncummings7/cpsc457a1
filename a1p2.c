@@ -120,7 +120,6 @@ int main(int argc, char *argv[]) {
 
             printf("Child PID %d checking range [%ld, %ld]\n", getpid(), start, end);
 
-            // Write primes into child's block
             size_t block_start = (size_t)i * block_size; // Start index of childs block
             size_t block_end = block_start + block_size; // End of block
             size_t next_free_slot = block_start; // Next free slot

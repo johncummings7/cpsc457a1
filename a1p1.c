@@ -1,8 +1,8 @@
 #include <stdio.h>
-#include <stdlib.h> // for exit calls
-#include <sys/types.h> // for pid_t type
-#include <sys/wait.h> // for wait calls
-#include <unistd.h> // for fork()
+#include <stdlib.h> 
+#include <sys/types.h> 
+#include <sys/wait.h> 
+#include <unistd.h> 
 
 int main(){
 	
@@ -17,17 +17,10 @@ int main(){
                 fprintf(stderr, "Error: bad input at coordinate [%d,%d]\n", row, col);
                 return 1;
             }
-
-            // test
-            if (matrix[row][col] == 1) {
-                printf("Found 1 at row: %d col: %d\n", row, col);
-            }
         }
     }
 
-    fflush(NULL); // flushing io streams
-
-    // Testing process creation: forking 100 children
+    // Forking 100 children
     for (int row = 0; row < 100; row++){
         pid_t fr = fork();
 
@@ -43,7 +36,7 @@ int main(){
             for (int col = 0; col < 1000; col++) {
                 if (matrix[row][col] == 1) {
                     treasure_found = 1;
-                    break; // No need to keep scanning when treasure is found, se we exit loop
+                    break; // No need to keep scanning when treasure is found, so we exit loop
                 }
             }
 
